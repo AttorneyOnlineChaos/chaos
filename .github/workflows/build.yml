@@ -15,15 +15,17 @@ concurrency:
   group: build-${{ inputs.mode }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-windows:
     runs-on: windows-latest
 
-    permissions:
-      contents: write
-
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/checkout@v4
         with:
@@ -31,6 +33,7 @@ jobs:
           ref: ${{ inputs.mode }}
           path: theory
           token: ${{ secrets.CLONE_CHAOS }}
+          persist-credentials: false
 
       - uses: actions/checkout@v4
         with:
@@ -38,6 +41,7 @@ jobs:
           ref: ${{ inputs.mode }}
           path: kenji
           token: ${{ secrets.CLONE_CHAOS }}
+          persist-credentials: false
 
       - uses: actions/checkout@v4
         with:
@@ -45,6 +49,7 @@ jobs:
           ref: ${{ inputs.mode }}
           path: spritechat
           token: ${{ secrets.CLONE_CHAOS }}
+          persist-credentials: false
 
       - uses: ilammy/msvc-dev-cmd@v1
 
@@ -63,13 +68,15 @@ jobs:
       - name: Install BASS
         shell: bash
         run: |
-          curl http://www.un4seen.com/files/bass24.zip -o bass.zip
+          curl -fsSL https://www.un4seen.com/files/bass24.zip -o bass.zip
+          echo "3a03ec9a33d0f4f9d167660da51c8bb1432e8977496995455ab137277d69636e  bass.zip" | sha256sum -c -
           unzip -d bass -o bass.zip
           cp ./bass/c/bass.h ./spritechat/external/
           cp ./bass/c/x64/bass.lib ./spritechat/external/
           cp ./bass/x64/bass.dll ./spritechat/bin/
 
-          curl http://www.un4seen.com/files/bassopus24.zip -o bassopus.zip
+          curl -fsSL https://www.un4seen.com/files/bassopus24.zip -o bassopus.zip
+          echo "1fb6e033289ea968ca1fd02dea154a2e5d06bb9c2e33cdeda277e63084d9ad20  bassopus.zip" | sha256sum -c -
           unzip -d bass -o bassopus.zip
           cp ./bass/c/bassopus.h ./spritechat/external/
           cp ./bass/c/x64/bassopus.lib ./spritechat/external/
@@ -90,43 +97,193 @@ jobs:
       - name: Package server
         shell: bash
         run: |
-          mkdir -p server
+          mkdir -p server/plugins
           cp kenji/bin/kenji-runtime.exe server/kenji.exe
           cp -r kenji/bin/config_sample server/
           cp -r kenji/bin/storage server/
-          windeployqt --release --no-translations --no-compiler-runtime --no-opengl-sw server/kenji.exe
+          cp theory/bin/plugins/*-badge-server.dll server/plugins/
+          windeployqt --dir server --release --no-translations --no-compiler-runtime --no-opengl-sw server/kenji.exe server/plugins/*.dll
 
       - name: Package client
         shell: bash
         run: |
-          mkdir -p client/imageformats
+          mkdir -p client/imageformats client/plugins
           cp spritechat/bin/spritechat-runtime.exe client/spritechat.exe
           cp spritechat/bin/bass.dll client/
           cp spritechat/bin/bassopus.dll client/
-          windeployqt --no-quick-import --no-translations --no-compiler-runtime --no-opengl-sw client/spritechat.exe
+          cp theory/bin/plugins/*-badge-client.dll client/plugins/
+          windeployqt --dir client --no-quick-import --no-translations --no-compiler-runtime --no-opengl-sw client/spritechat.exe client/plugins/*.dll
           find qtapng/build -name qapng.dll -exec cp {} client/imageformats/ \;
 
       - name: Upload server
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-windows
           path: server
 
       - name: Upload client
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: client-windows
           path: client
 
-      - name: Package archives
-        if: inputs.mode == 'nightly'
-        shell: bash
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: 1
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: AttorneyOnlineChaos/theory
+          ref: ${{ inputs.mode }}
+          path: theory
+          token: ${{ secrets.CLONE_CHAOS }}
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: AttorneyOnlineChaos/kenji
+          ref: ${{ inputs.mode }}
+          path: kenji
+          token: ${{ secrets.CLONE_CHAOS }}
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: AttorneyOnlineChaos/spritechat
+          ref: ${{ inputs.mode }}
+          path: spritechat
+          token: ${{ secrets.CLONE_CHAOS }}
+          persist-credentials: false
+
+      - name: Install system packages
         run: |
-          (cd server && 7z a ../server-windows.zip .)
-          (cd client && 7z a ../client-windows.zip .)
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          aqtversion: '==3.1.*'
+          version: '6.8.3'
+          host: 'linux'
+          target: 'desktop'
+          arch: 'linux_gcc_64'
+          cache: true
+          cache-key-prefix: install-qt-action
+          modules: 'qtimageformats qtwebsockets qthttpserver'
+
+      - name: Install BASS
+        run: |
+          curl -fsSL https://www.un4seen.com/files/bass24-linux.zip -o bass.zip
+          echo "9bf723dbf750d665c14cfc099f96a056483dc35de6850d2df76af8b640435ca9  bass.zip" | sha256sum -c -
+          unzip -d bass -o bass.zip
+          cp ./bass/c/bass.h ./spritechat/external/
+          cp ./bass/libs/x86_64/libbass.so ./spritechat/external/
+          cp ./bass/libs/x86_64/libbass.so ./spritechat/bin/
+
+          curl -fsSL https://www.un4seen.com/files/bassopus24-linux.zip -o bassopus.zip
+          echo "484399ad96a71450561a28be540dcf8ff8f5c68f9421244250d03665036f0537  bassopus.zip" | sha256sum -c -
+          unzip -d bass -o bassopus.zip
+          cp ./bass/c/bassopus.h ./spritechat/external/
+          cp ./bass/libs/x86_64/libbassopus.so ./spritechat/external/
+          cp ./bass/libs/x86_64/libbassopus.so ./spritechat/bin/
+
+      - name: Install linuxdeploy
+        run: |
+          curl -fsSL https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage -o linuxdeploy-x86_64.AppImage
+          echo "c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d  linuxdeploy-x86_64.AppImage" | sha256sum -c -
+          curl -fsSL https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-qt-x86_64.AppImage -o linuxdeploy-plugin-qt-x86_64.AppImage
+          echo "15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724  linuxdeploy-plugin-qt-x86_64.AppImage" | sha256sum -c -
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
+          echo "$PWD" >> "$GITHUB_PATH"
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Build Apng plugin
+        run: |
+          git clone --depth 1 https://github.com/jurplel/QtApng qtapng
+          cmake -S qtapng -B qtapng/build -D CMAKE_BUILD_TYPE=Release
+          cmake --build qtapng/build --config Release
+
+      - name: Remove SQL driver
+        run: rm "$QT_ROOT_DIR/plugins/sqldrivers/libqsqlmimer.so"
+
+      - name: Package server
+        run: |
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          mkdir -p stage server/plugins
+          cp kenji/bin/kenji-runtime stage/kenji
+          cp kenji/data/icon/kenji.png kenji.png
+          OUTPUT=kenji.AppImage linuxdeploy-x86_64.AppImage --appdir AppDir-server -e stage/kenji -d kenji/scripts/kenji.desktop -i kenji.png --plugin qt --output appimage
+          mv kenji.AppImage server/
+          cp -r kenji/bin/config_sample server/
+          cp -r kenji/bin/storage server/
+          cp theory/bin/plugins/*-badge-server.so server/plugins/
+
+      - name: Package client
+        run: |
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          export LD_LIBRARY_PATH="$PWD/spritechat/bin:${LD_LIBRARY_PATH:-}"
+          mkdir -p stage client AppDir-client/usr/plugins/imageformats
+          cp spritechat/bin/spritechat-runtime stage/spritechat
+          cp spritechat/data/logo-client.png spritechat.png
+          find qtapng/build -name libqapng.so -exec cp {} AppDir-client/usr/plugins/imageformats/ \;
+          OUTPUT=spritechat.AppImage linuxdeploy-x86_64.AppImage --appdir AppDir-client -e stage/spritechat -l spritechat/bin/libbass.so -l spritechat/bin/libbassopus.so -d spritechat/scripts/spritechat.desktop -i spritechat.png --plugin qt --output appimage
+          mv spritechat.AppImage client/
+
+      - name: Package archives
+        run: |
+          (cd server && tar -cf ../server-linux.tar *)
+          (cd client && tar -cf ../client-linux.tar *)
+
+      - name: Upload server
+        uses: actions/upload-artifact@v7
+        with:
+          path: server-linux.tar
+          archive: false
+
+      - name: Upload client
+        uses: actions/upload-artifact@v7
+        with:
+          path: client-linux.tar
+          archive: false
+
+  publish:
+    needs: [build-windows, build-linux]
+    if: inputs.mode == 'nightly'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: '*-windows'
+          path: artifacts
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: '*-linux.tar'
+          merge-multiple: true
+
+      - name: Package archives
+        run: |
+          (cd artifacts/server-windows && 7z a ../../server-windows.zip .)
+          (cd artifacts/client-windows && 7z a ../../client-windows.zip .)
 
       - name: Publish nightly
-        if: inputs.mode == 'nightly'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
@@ -135,3 +292,19 @@ jobs:
           files: |
             server-windows.zip
             client-windows.zip
+            server-linux.tar
+            client-linux.tar
+
+  cleanup:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete previous runs
+        uses: Mattraks/delete-workflow-runs@v2.1.0
+        with:
+          retain_days: 0
+          keep_minimum_runs: 0
