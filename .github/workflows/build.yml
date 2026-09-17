@@ -216,8 +216,8 @@ jobs:
           cmake -S qtapng -B qtapng/build -D CMAKE_BUILD_TYPE=Release
           cmake --build qtapng/build --config Release
 
-      - name: Remove SQL driver
-        run: rm "$QT_ROOT_DIR/plugins/sqldrivers/libqsqlmimer.so"
+      - name: Keep only the SQLite driver
+        run: find "$QT_ROOT_DIR/plugins/sqldrivers" -name 'libqsql*.so' ! -name 'libqsqlite.so' -delete
 
       - name: Package server
         run: |
@@ -235,12 +235,13 @@ jobs:
         run: |
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           export LD_LIBRARY_PATH="$PWD/spritechat/bin:${LD_LIBRARY_PATH:-}"
-          mkdir -p stage client AppDir-client/usr/plugins/imageformats
+          mkdir -p stage client/plugins AppDir-client/usr/plugins/imageformats
           cp spritechat/bin/spritechat-runtime stage/spritechat
           cp spritechat/data/logo-client.png spritechat.png
           find qtapng/build -name libqapng.so -exec cp {} AppDir-client/usr/plugins/imageformats/ \;
           OUTPUT=spritechat.AppImage linuxdeploy-x86_64.AppImage --appdir AppDir-client -e stage/spritechat -l spritechat/bin/libbass.so -l spritechat/bin/libbassopus.so -d spritechat/scripts/spritechat.desktop -i spritechat.png --plugin qt --output appimage
           mv spritechat.AppImage client/
+          cp theory/bin/plugins/*-badge-client.so client/plugins/
 
       - name: Package archives
         run: |
