@@ -244,19 +244,19 @@ jobs:
 
       - name: Package archives
         run: |
-          (cd server && tar -cf ../server-linux.tar *)
-          (cd client && tar -cf ../client-linux.tar *)
+          (cd server && tar -cf ../linux-x64-server.tar *)
+          (cd client && tar -cf ../linux-x64-client.tar *)
 
       - name: Upload server
         uses: actions/upload-artifact@v7
         with:
-          path: server-linux.tar
+          path: linux-x64-server.tar
           archive: false
 
       - name: Upload client
         uses: actions/upload-artifact@v7
         with:
-          path: client-linux.tar
+          path: linux-x64-client.tar
           archive: false
 
   publish:
@@ -275,13 +275,22 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          pattern: '*-linux.tar'
+          pattern: 'linux-x64-*.tar'
           merge-multiple: true
 
       - name: Package archives
         run: |
-          (cd artifacts/server-windows && 7z a ../../server-windows.zip .)
-          (cd artifacts/client-windows && 7z a ../../client-windows.zip .)
+          (cd artifacts/server-windows && 7z a ../../windows-x64-server.zip .)
+          (cd artifacts/client-windows && 7z a ../../windows-x64-client.zip .)
+
+      - name: Clear previous release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=$(gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          for asset in $assets; do
+            gh release delete-asset nightly "$asset" --repo "$GITHUB_REPOSITORY" --yes
+          done
 
       - name: Publish nightly
         uses: softprops/action-gh-release@v2
@@ -290,10 +299,10 @@ jobs:
           name: Latest Nightly
           prerelease: true
           files: |
-            server-windows.zip
-            client-windows.zip
-            server-linux.tar
-            client-linux.tar
+            windows-x64-server.zip
+            windows-x64-client.zip
+            linux-x64-server.tar
+            linux-x64-client.tar
 
   cleanup:
     needs: [build-windows, build-linux]
